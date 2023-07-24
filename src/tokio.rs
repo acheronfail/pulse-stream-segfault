@@ -1,3 +1,4 @@
+mod util;
 mod wav;
 
 use std::{cell::RefCell, error::Error, rc::Rc};
@@ -79,8 +80,9 @@ async fn async_main() -> Result<(), Box<dyn Error>> {
             if bytes_written == audio_data.len() {
                 // FIXME !!!! FIXME !!!!
                 // a segmentation fault occurs when calling `.set_write_callback` here
-                // uncomment and run this to see that it all works when it's not set
-                stream_ref.borrow_mut().set_write_callback(None);
+                if util::should_unset_write_callback() {
+                    stream_ref.borrow_mut().set_write_callback(None);
+                }
 
                 // we're done writing the audio data, tell the server to convert this stream to a sample
                 stream_ref
