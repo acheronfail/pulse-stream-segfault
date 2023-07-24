@@ -1,18 +1,14 @@
+mod wav;
+
 use std::{cell::RefCell, error::Error, rc::Rc};
 
 use libpulse_binding::{
     context::{Context, FlagSet, State},
     proplist::Proplist,
-    sample::{Format, Spec},
     stream::{SeekMode, Stream},
 };
 use libpulse_tokio::TokioMain;
-use tokio::{
-    fs::{File, OpenOptions},
-    io::AsyncReadExt,
-    runtime::Builder,
-    task::LocalSet,
-};
+use tokio::{runtime::Builder, task::LocalSet};
 
 fn main() {
     // single threaded runtime
@@ -55,7 +51,7 @@ async fn async_main() -> Result<(), Box<dyn Error>> {
 
     // create a pulse stream -----------------------------------------------------------------------
 
-    let (spec, audio_data) = read_wav_file().await?;
+    let (spec, audio_data) = wav::read_wav_file().await?;
     let audio_data_len = audio_data.len();
 
     // create pulse stream
@@ -86,6 +82,7 @@ async fn async_main() -> Result<(), Box<dyn Error>> {
                 // uncomment and run this to see that it all works when it's not set
                 stream_ref.borrow_mut().set_write_callback(None);
 
+                // we're done writing the audio data, tell the server to convert this stream to a sample
                 stream_ref
                     .borrow_mut()
                     .finish_upload()
@@ -99,57 +96,11 @@ async fn async_main() -> Result<(), Box<dyn Error>> {
     // connect the stream as an upload, which sends it to the audio server instead of playing it directly
     stream.borrow_mut().connect_upload(audio_data_len)?;
 
+    // play the sample
     while let Some(()) = rx.recv().await {
         pa_ctx.play_sample("SAMPLE_NAME", None, None, None);
     }
 
-    // block forever since pulse main loop is running
+    // block forever since pulse main loop is running and we don't want to stop it
     futures::future::pending::<Result<(), Box<dyn Error>>>().await
-}
-
-async fn read_wav_file() -> Result<(Spec, Vec<u8>), Box<dyn Error>> {
-    // open file
-    let file = OpenOptions::new().read(true).open("pop.wav").await?;
-
-    // get its metadata
-    let meta = file.metadata().await?;
-
-    // now use `hound` to read the wav specification
-    let wav_reader = hound::WavReader::new(file.into_std().await)?;
-    let wav_spec = wav_reader.spec();
-
-    // convert back to an async `File` to read the rest of the data now that the `WavReader` has
-    // read the header and metadata parts
-    let mut file = File::from_std(wav_reader.into_inner());
-
-    // read the rest of the file (the audio data)
-    let mut buf = Vec::with_capacity(meta.len() as usize);
-    file.read_to_end(&mut buf).await?;
-
-    // create a pulse spec from the wav spec
-    let spec = Spec {
-        format: match wav_spec.sample_format {
-            hound::SampleFormat::Float => Format::FLOAT32NE,
-            hound::SampleFormat::Int => match wav_spec.bits_per_sample {
-                16 => Format::S16NE,
-                24 => Format::S24NE,
-                32 => Format::S32NE,
-                n => panic!("unsupported bits per sample: {}", n),
-            },
-        },
-        channels: wav_spec.channels as u8,
-        rate: wav_spec.sample_rate,
-    };
-
-    if !spec.is_valid() {
-        panic!("format specification wasn't valid: {:?}", spec);
-    }
-
-    // pad out sound data to the next frame size
-    let frame_size = spec.frame_size();
-    if let Some(rem) = buf.len().checked_rem(frame_size) {
-        buf.extend(vec![0; rem]);
-    }
-
-    Ok((spec, buf))
 }

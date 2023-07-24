@@ -3,6 +3,14 @@ name = "pulse-stream"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+path = "src/tokio.rs"
+name = "tokio"
+
+[[bin]]
+path = "src/threaded.rs"
+name = "threaded"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
